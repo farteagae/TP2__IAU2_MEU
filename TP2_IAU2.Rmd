@@ -1,0 +1,286 @@
+---
+title: "TP2_IAU2"
+author: "Felipe Arteaga"
+date: "2023-09-10"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# **ANÁLISIS DE PARIS**
+#### **COLEGIOS**
+###### <span style="color:grey">**París DATA**</span>
+
+En este segundo ejercicio "TP2" procederé a analizar información relativa a los colegios en la ciudad de París, de modo tal de saber; ¿que barrio es el que contiene la mayor y cual la menos cantidad de colegios? Así como la cantidad promedio y la densidad, entre otros temas. 
+
+En primer lugar instalo las librerías que voy a requerir.
+
+
+
+```{r}
+library(tidyverse)
+library(sf)
+```
+
+```{r}
+library(ggplot2)
+
+```
+
+Cargo la información de los diferentes barrios de la ciudad de París descargada de la página de París DATA y corroboro su morfología mapeando los datos.
+
+
+```{r}
+paris<- st_read("Data/arrondissements.geojson", stringsAsFactors = TRUE)
+```
+
+```{r}
+ggplot()+
+  geom_sf(data=paris)
+```
+
+
+Con el archivo cargado y corroborado procedo a subir los datos de los establecimientos escolares; colegio. Los mapeo.
+
+
+```{r}
+colegios<- st_read("Data/etablissements-scolaires-colleges.geojson", stringsAsFactors = TRUE)
+```
+```{r}
+names(colegios)
+```
+
+```{r}
+ggplot() +
+    geom_sf(data = paris) +
+  geom_sf(data = colegios, color = "orange")
+```
+
+
+Transformo el archivo de colegios en uno georeferenciado para poder luego hacer un JOIN espacial.
+
+
+```{r}
+cole_geo <- colegios %>% 
+    st_as_sf(coords = c("long", "lat"), crs = 4326)
+```
+```{r}
+class(cole_geo)
+head(cole_geo)
+```
+```{r}
+ggplot(cole_geo)+
+  geom_sf()
+```
+
+
+```{r}
+ggplot()+
+  geom_sf(data=paris, fill="gray75", color="white")+
+  geom_sf(data=cole_geo, aes(color=arr_libelle), alpha=0.5)+
+  labs(title="Escuelas de Paris")
+```
+
+
+A continuación realizo el JOIN espacial entre el archivos de barrios y colegios para poder tener la información de barrios dentro de colegios.
+
+
+```{r}
+cole_geo <- st_join(cole_geo, paris)
+
+```
+
+```{r}
+ggplot()+
+  geom_sf(data=paris)+
+  geom_sf(data=cole_geo, aes(color=arr_libelle), alpha=0.75, show.legend = FALSE)
+```
+
+
+Filtro los valores sin dato.
+
+
+```{r}
+cole_geo <- cole_geo %>%
+  filter(!is.na(arr_libelle))
+```
+
+
+Vuelvo a mapear los barrios y colegios con un color diferente por cada barrio.
+
+
+```{r}
+ggplot()+
+  geom_sf(data=paris)+
+  geom_sf(data=cole_geo, aes(color=arr_libelle), alpha=0.75, show.legend = FALSE)
+```
+
+
+## **PROCESAMIENTO DE DATOS**
+
+Procedo a crear dos columnas/campos nuevos. Uno sobre la cantidad de colegios por barrio y otro de densidad de colegios para lo cual usare la reciente columna creada de cantidad junto a los valores de superficie de cada barrio.
+
+```{r}
+colnames(cole_geo)
+```
+
+
+```{r}
+cole_geo <- cole_geo %>%
+  group_by(l_ar) %>%
+  summarise(cantidad=n(),
+            densidad_cole=mean(cantidad/surface))
+```
+
+
+Vemos que las columnas se crearon correctamente.
+
+
+```{r}
+head(cole_geo)
+```
+
+
+Luego mapeo los datos de densidad de colegios por barrio, sin tener la información volcada sobre los polígonos.
+
+
+```{r}
+ggplot()+
+  geom_sf(data=paris)+
+  geom_sf(data=cole_geo, aes(color=densidad_cole), alpha=0.75, show.legend = FALSE)
+```
+
+
+## **TRASPASO DE INFORMACIÓN A POLÍGONOS**
+
+En consecuencia, decido pasar la data a los polígono correspondientes para lo cual tendré que sacarle la geometría al archivo de colegio para poder realizar un LEFT JOIN ya que esta herramienta sólo une archivos espaciales con no espaciales, no así, dos geográficos a la vez.
+
+
+```{r}
+cole_geo <- cole_geo %>%
+  st_set_geometry(NULL)
+```
+
+```{r}
+head(cole_geo)
+```
+
+
+Se puede apreciar que el archivo se ejecuta correctamente sacando la información geográfica. Ahora realizo el LEFT JOIN y mapeo para verificar que todo haya resultado bien.
+
+
+```{r}
+paris_b <- left_join(paris, cole_geo, by="l_ar")
+```
+
+```{r}
+ggplot()+
+  geom_sf(data=paris_b, aes(fill=densidad_cole))
+```
+
+
+## **DENSIDAD DE COLEGIOS**
+
+Una vez verificado con el mapa, decido editarlo para presentar los resultados finales.
+
+
+```{r}
+ggplot()+
+  geom_sf(data=paris_b, aes(fill=densidad_cole), color="white")+
+    labs(title = "Densidad de colegios en la ciudad de Paris",
+         subtitle = "Barrios de Paris",
+         fill = "Cantidad/sup",
+         caption= "Fuente: Paris DATA") +
+  scale_fill_distiller(palette = "YlOrRd", direction = 1) +
+   theme_void()
+```
+
+
+## **CANTIDAD DE COLEGIOS**
+
+A continuación mostrare la cantidad de colegios por barrio de la ciudad de París con el archivo de Colegios. De esta forma podre analizar cuales son los barrios con mayor cantidad de colegios a través de un gráfico de barras.
+
+
+```{r}
+ggplot(colegios)+
+  geom_bar(aes(x=arr_libelle ))+
+  coord_flip()+
+  labs(title="Cantidad total de colegios por Barrio",
+       x="Barrios",
+       y="Cantidad",
+       caption="Fuente: Paris DATA")+
+  theme(legend.position="top",
+        legend.direction = "horizontal", 
+        legend.title=element_text(size=8, face = "bold"), 
+        legend.text=element_text(size=8), 
+        axis.text.x = element_text(colour = "gray35",size = 6), 
+        axis.text.y = element_text(colour = "gray35",size = 1))
+```
+
+
+Finalmente, mapeo esta información con el archivo de polígonos.
+
+
+```{r}
+ggplot()+
+  geom_sf(data=paris_b, aes(fill=cantidad), color="white")+
+    labs(title = "Cantidad de colegios en la ciudad de Paris",
+         subtitle = "Barrios de Paris",
+         fill = "Cantidad",
+         caption= "Fuente: Paris DATA") +
+  scale_fill_distiller(palette = "YlGnBu", direction = 1) +
+   theme_void()
+```
+
+
+## **CONCLUSIONES**
+
+Decido realizar un resumen estadístico de la información como se puede ver:
+
+
+```{r}
+summary(paris_b)
+```
+
+
+Se puede detectar algunos detalles: 
+
+- El barrio con mayor cantidad de colegios es el distrito 19 Buttes-Chaumont y tiene 65 establecimientos.
+- Los barrios con menor cantidad de colegios son el distrito 1 y 2 (Louvre y Bourse) y ambos tienen 5 establecimientos cada uno.
+- La fuente de todas las observaciones es<https://opendata.paris.fr/pages/home/>
+- La cantidad promedio es de 28 colegios por barrio.
+
+En base al análisis general decido profundizar más en los 5 barrios con mayor cantidad de colegios:
+
+
+```{r}
+ordenado <- paris_b %>%
+  
+arrange(desc(cantidad))
+
+head(ordenado,5)
+```
+
+
+1. <span style="color:red">**Buttes-Chaumont**</span>
+2. <span style="color:red">**Ménilmontant**</span>
+3. <span style="color:red">**Buttes-Montmartre**</span>
+4. Gobelins
+5. Vaugirard
+
+Por otro lado, los 5 barrios con más densidad de colegios son:
+
+
+```{r}
+ordenado_b <- paris_b %>%
+  
+arrange(desc(densidad_cole))
+
+head(ordenado_b,5)
+```
+1. <span style="color:red">**Ménilmontant **</span>
+2. <span style="color:red">**Panthéon **</span>
+3. <span style="color:red">**Buttes-Chaumont**</span>
+4. Opéra 
+5. Buttes-Montmartre
+
